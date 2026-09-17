@@ -49,7 +49,7 @@
 // WorldNormal           Float3            VertexNormalWS 节点
 // WorldTangent          Float3            VertexTangentWS 节点（模型切线，世界空间，法线贴图用）
 // CameraVector          Float3            CameraDirectionVector 节点
-// LightDirection        Float3            从场景指向光源的方向（见 README）
+// LightDirection        Float3            从场景指向光源的方向（见 Documentation/MMDToonShader_SM5_SingleFunc_使用文档.md）
 // BaseColorTex          Texture2D         TextureObjectParameter（Base Colour 贴图）
 // ORMTexture            Texture2D         TextureObjectParameter（R=AO/G=Roughness/B=Metallic，
 //                                          UE/glTF 标准约定；只有 UseORM=1 时才会被采样）

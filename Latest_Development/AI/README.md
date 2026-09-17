@@ -40,10 +40,8 @@ Latest_Development/AI/
 │   ├── fit_mlp.py                     # MLP 训练 + HLSL 代码生成
 │   ├── retrain_all.py                 # ★ 一键重训入口
 │   ├── ai_mlp.hlsl                    # 生成物（勿手改）：独立前置节点版
-│   ├── training_data.csv              # 生成物：训练样本
-│   └── _exp/                          # 诊断脚本（不参与训练）
+│   └── training_data.csv              # 生成物：训练样本
 ├── UE_MMDAnchorRecorder/              # UE 编辑器插件：录制锚点
-├── Archive/                           # 历史归档（多项式回归时代）
 └── README.md                          # 本文件
 ```
 
@@ -300,14 +298,6 @@ LdotV,L_up,L_right,ShadowSmooth,ShadowLocation,ExposureScale,VcamX,VcamY,VcamZ,n
 
 要求：选中项里**恰好一个**承载 Toon 材质的 Actor，否则中止并说明原因。
 
-### 7.4 诊断脚本
-
-| 脚本 | 用途 |
-|------|------|
-| `_exp/diag_sweep_flicker.py` | 沿光扫轨迹的逐帧抖动（>0.5°/帧 占比） |
-| `_exp/diag_mlp_smoothness.py` | MLP 方向导数、安全区 |
-| `_exp/diag_camera_sensitivity.py` | 相机每转 1° 的参数跳变 |
-
 ---
 
 ## 8. 版本关系
@@ -346,7 +336,7 @@ Full（整合示例材质）
 6. **法线贴图双守卫**：切线无效 NaN 守卫 + BC5 蓝通道守卫，任一命中退回几何法线
 7. **不透明版与半透明版必须共用同一套权重**：`retrain_all.py` 会同步并校验逐字相同
 8. **重训后确认 AUTO-MLP 标记完整**：两份 `Full_*_AI.hlsl` 都要推送到 UE
-9. **闪烁排查**：先看 `_exp/diag_sweep_flicker.py` 的 >0.5°/帧 占比；若仍抖多半是相机运动
+9. **闪烁排查**：确认重训带了 `--take-offset --smooth-order 3`（见 7.1 推荐命令）；若仍抖多半是相机运动
 
 ---
 

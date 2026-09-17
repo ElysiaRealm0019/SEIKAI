@@ -4,8 +4,9 @@ UMMDAnchorRecorderSettings::UMMDAnchorRecorderSettings()
 {
 	CategoryName = TEXT("MMD");
 
-	// 默认指向 AI 训练工程下的锚点表（按需在 Project Settings 中修改）
-	AnchorsCsvPath = TEXT("F:/TA/SimpleHLSLCode/Latest_Development/AI/AIControl/anchors.csv");
+	// 锚点表输出路径：默认为空，使用前请在 Project Settings → MMD 中指向你的
+	// AIControl/anchors.csv（本仓库位于 Latest_Development/AI/AIControl/ 下）
+	AnchorsCsvPath = TEXT("");
 	bInvertLightDirection = true;
 	// 相机固定正对角色正面 → 相机在物体 +Y 侧。与 collect_training_data.py 的
 	// V_CAM、shader 的 (CameraOrigin - ObjectPosition) 同一约定。

@@ -38,7 +38,7 @@
 //                                       （BugMode=1 时这个引脚的实际值会被忽略，
 //                                        代码内部强制归零，正常连接即可）
 // CameraVector       Float3            CameraDirectionVector 节点
-// LightDirection     Float3            从场景指向光源的方向（见主 README）
+// LightDirection     Float3            从场景指向光源的方向（见 Documentation/MMDToonShader_SM5_SingleFunc_使用文档.md）
 // NormalMapTex       Texture2D         TextureObjectParameter（切线空间法线贴图，
 //                                       必须是真实的 BC5 压缩法线贴图，见上方说明）
 // BaseColorTex       Texture2D         TextureObjectParameter（可选，不接则默认纯白，

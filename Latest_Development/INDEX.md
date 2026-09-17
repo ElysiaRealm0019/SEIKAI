@@ -1,8 +1,9 @@
 # MMD Toon Shader — 源码树索引
 
-> 最后整理：2026年9月12日
-> **本目录（`Latest_Development/`）是唯一源码树。** 仓库根目录只保留 `README.md`、
-> `MMDToonShader_SM5_SingleFunc_Full_使用文档.md` 和参考图 / 素材。
+> 最后整理：2026年9月17日
+> **本目录（`Latest_Development/`）是全部源码与文档所在。** 仓库根目录另有
+> `README.md`（项目简介）、`MMDToonShader_SM5_SingleFunc_Full_使用文档.md`（整合版详细说明）
+> 和 `MMD_Bone_Name_Dict_EN.csv`（MMD 骨骼名日英对照表）。
 
 ---
 
@@ -32,9 +33,7 @@
 | `AIControl/retrain_all.py` | **一键重训入口**：偏置/光滑 → 生成数据 → 训练 → 写 `ai_mlp.hlsl` → 同步两份 `Full_*_AI.hlsl` |
 | `AIControl/ai_mlp.hlsl` | 生成物（勿手改）：3 → 64 ReLU → 3，供 UE Custom Node 使用 |
 | `AIControl/training_data.csv` | 生成物：500 条训练样本 |
-| `AIControl/_exp/` | 诊断/实验脚本（`diag_sweep_flicker.py` 等，不参与训练） |
 | `UE_MMDAnchorRecorder/` | UE 编辑器插件，用于录制锚点 |
-| `Archive/MMDToonShader_SM5_SingleFunc_AI.hlsl` | 早期 AI 版 |
 
 **重训流程**：改 `AIControl/anchors.csv` → `cd AI/AIControl && python retrain_all.py --take-offset --smooth-order 3`
 > `ai_mlp.hlsl` 和两份 `Full_*_AI.hlsl` 的 `AUTO-MLP-BEGIN/END` 区间都是生成物，手改会被覆盖。
@@ -54,6 +53,7 @@
 - `Debug/MMDToonShader_SM5_Debug_NormalBugs.hlsl`：法线贴图 Bug 复现工具
 
 ### 6. Documentation（技术文档）
+- `MMDToonShader_SM5_SingleFunc_使用文档.md`：SingleFunc 主文件完整参数手册、材质图连接与故障排查
 - `ShaderPrinciples.md`：Shader 原理深度解析
 - `MMDToonShader_Logic.md`：Shader 逻辑说明
 - `Evolution_From_Polynomial_To_MLP.md`：从多项式回归到 MLP 的技术演进
@@ -62,18 +62,9 @@
 - `MMDToonShader_Full_AI_使用文档.md`：AI 驱动版使用文档
 - `Performance_Test_Plan.md`：性能与兼容性测试计划（设备分档 / 测量方法 / 通过判据）
 
-> 根目录另有 `MMDToonShader_SM5_SingleFunc_Full_使用文档.md`（整合版详细说明）和 `README.md`。
-
-### 7. Archive（历史归档，非活跃代码）
-- `AIControl/`：多项式回归时代（2026年7月），含已废弃的 `ai_polynomial.hlsl` / `fit_polynomial.py`
-- `Character/`、`Outline/`：早期版本，含 `MMDToonShader_SM5_SingleFunc_44param_legacy.hlsl`
-- `_from_root_20260912/`：2026-09-12 整理时从仓库根目录清出的中间版本
-  （Sep 6–7 的 `AIControl/` 副本、24 隐藏层版 `Full_AI.hlsl`、Sep 4 短版使用文档）
-
-### 8. 其他
+### 7. 其他
 - `VERSION_COMPARISON.md`：SingleFunc / 示例材质 / Full 版三版本功能矩阵对比
 - `PARAMETER_OPTIMIZATION.md`、`OLD_VERSION_ANALYSIS.md`：参数优化与旧版分析
-- `Other/`：学术评审相关 skill 与 HTML
 
 ---
 
@@ -82,10 +73,3 @@
 1. **AI 版落后渲染版一代**：`AI/MMDToonShader_SM5_SingleFunc_Full_AI.hlsl` 停留在 Sep 9，
    尚未包含 `Full_Test` / `Full_Alpha` 在 Sep 11 加入的 `SpecGate`、`RimEnvMode`、
    `MatcapSharpen`、`HairMapMode` 四项改进。合并需单独一轮并重新在 UE 中验证。
-2. **换行符不统一**：仓库内 CRLF 与 LF 混用（早期从根目录复制产生的 CRLF 副本已清理，
-   现有文件以 LF 为主）。比较文件差异时建议用 `diff --strip-trailing-cr`。
-3. `_exp/`、`anchors_*.csv` 属实验残留，确认无用后可再清理一轮。
-
-## 版本信息
-- 分支：`main`
-- 本索引整理时的最近提交：`ae23754` (9.7)

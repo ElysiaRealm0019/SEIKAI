@@ -142,4 +142,4 @@ OpenBLAS/MKL 默认自己开多线程，与 Python 多进程叠加会造成线�
 
 - `training_data.csv`：500 条 `(LdotV, L_up, L_right, SS, SL, EX)`，供 `fit_mlp.py` 训练；
 - 生成物、勿手改。改锚点或口径请改 `anchors.csv` / 命令行，然后重跑 `retrain_all.py`；
-- 上机验证看 `_exp/diag_sweep_flicker.py` 的 >0.5°/帧 占比与 `_exp/diag_camera_sensitivity.py`。
+- 上机验证：统计阴影边界 >0.5°/帧 的帧占比（人眼可见阈值）。

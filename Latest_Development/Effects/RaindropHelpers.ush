@@ -4,7 +4,6 @@
 //
 //  【使用方式】
 //  1. 将本文件复制到：[你的项目根目录]/Shaders/RaindropHelpers.ush
-//     例：F:\TA\TAScene\Yachiyo_Start_Scene\YachiyoScene\Shaders\RaindropHelpers.ush
 //
 //  2. 在 UE5 材质编辑器中，选中 Custom 节点，
 //     在 Details 面板找到 "Include File Paths"，
