@@ -1,0 +1,257 @@
+// =============================================================================
+//  RaindropHelpers.ush
+//  风格化雨滴 — 全局函数定义文件
+//
+//  【使用方式】
+//  1. 将本文件复制到：[你的项目根目录]/Shaders/RaindropHelpers.ush
+//     例：F:\TA\TAScene\Yachiyo_Start_Scene\YachiyoScene\Shaders\RaindropHelpers.ush
+//
+//  2. 在 UE5 材质编辑器中，选中 Custom 节点，
+//     在 Details 面板找到 "Include File Paths"，
+//     点击 + 添加一条：/Project/RaindropHelpers.ush
+//
+//  3. Custom 节点的 Code 框里只需要粘贴 RaindropMaterial.hlsl 的内容
+//     （仅一个 return 语句）
+//
+//  【原理】
+//  UE5 的 Custom 节点代码被注入到一个已有函数体内部，
+//  HLSL 不允许在函数内部再定义函数，因此会报：
+//    "function definition is not allowed here"
+//  而 Include File Paths 里的文件会被注入到全局作用域（函数体外），
+//  所有函数定义放在这里就完全合法。
+// =============================================================================
+
+#pragma once
+
+// =============================================================================
+//  MODULE 1 — 工具函数
+// =============================================================================
+
+float2 RD_Hash22(float2 p)
+{
+    float3 p3 = frac(float3(p.xyx) * float3(0.1031, 0.1030, 0.0973));
+    p3 += dot(p3, p3.yzx + 33.33);
+    return frac((p3.xx + p3.yz) * p3.zy);
+}
+
+float RD_Hash11(float n)
+{
+    return frac(sin(n) * 43758.5453123);
+}
+
+float RD_Hash12(float2 p)
+{
+    float3 p3 = frac(float3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return frac((p3.x + p3.y) * p3.z);
+}
+
+float RD_SMin(float a, float b, float k)
+{
+    float h = saturate(0.5 + 0.5 * (b - a) / k);
+    return lerp(b, a, h) - k * h * (1.0 - h);
+}
+
+float RD_Smooth5(float t)
+{
+    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+}
+
+float RD_ValueNoise(float2 p)
+{
+    float2 i = floor(p);
+    float2 f = frac(p);
+    float2 u = float2(RD_Smooth5(f.x), RD_Smooth5(f.y));
+    float a = RD_Hash12(i + float2(0, 0));
+    float b = RD_Hash12(i + float2(1, 0));
+    float c = RD_Hash12(i + float2(0, 1));
+    float d = RD_Hash12(i + float2(1, 1));
+    return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y);
+}
+
+float RD_FBM3(float2 p)
+{
+    float2x2 rot = float2x2(1.6, 1.2, -1.2, 1.6);
+    float value = 0.0, amp = 0.5, total = 0.0;
+    value += RD_ValueNoise(p)   * amp; total += amp; amp *= 0.5; p = mul(rot, p); p *= 2.1;
+    value += RD_ValueNoise(p)   * amp; total += amp; amp *= 0.5; p = mul(rot, p); p *= 2.1;
+    value += RD_ValueNoise(p)   * amp; total += amp;
+    return value / total;
+}
+
+
+// =============================================================================
+//  MODULE 2 — 泪滴 SDF
+// =============================================================================
+
+float RD_SdTeardrop(float2 p, float size)
+{
+    p /= size;
+    float circle = length(p) - 0.5;
+    float2 q     = float2(abs(p.x), p.y);
+    float  k     = dot(q, float2(0.75, 0.65));
+    float  cone  = max(k - 0.28, -p.y - 0.48);
+    return RD_SMin(circle, cone, 0.18) * size;
+}
+
+float3 RD_TeardropNormal(float2 p, float size)
+{
+    const float eps = 0.0008;
+    float dx = RD_SdTeardrop(p + float2(eps, 0.0), size)
+             - RD_SdTeardrop(p - float2(eps, 0.0), size);
+    float dy = RD_SdTeardrop(p + float2(0.0, eps), size)
+             - RD_SdTeardrop(p - float2(0.0, eps), size);
+    return normalize(float3(dx, dy, eps * 2.5));
+}
+
+
+// =============================================================================
+//  MODULE 3 — 程序化焦散
+// =============================================================================
+
+float RD_CausticPattern(float2 uv, float time, float seed)
+{
+    float2 seedOffset = float2(RD_Hash11(seed * 17.3), RD_Hash11(seed * 31.7)) * 4.0;
+    uv += seedOffset;
+
+    float c = 0.0;
+    [unroll]
+    for (int i = 0; i < 3; i++)
+    {
+        float fi = float(i);
+        float2 offset = float2(
+            sin(time * 0.25 + fi * 1.618 + seed * 6.28) * 0.6,
+            cos(time * 0.18 + fi * 2.399 + seed * 4.71) * 0.6
+        );
+        float2 q = uv * 2.8 + offset;
+        c += sin(q.x + sin(q.y + time * 0.08 + fi)) * 0.5 + 0.5;
+    }
+    c /= 3.0;
+
+    float noise = RD_FBM3(uv * 3.5 + float2(time * 0.05 + seed, time * 0.03));
+    return saturate(lerp(c, noise, 0.35));
+}
+
+
+// =============================================================================
+//  MODULE 4 — 粒子生命周期
+// =============================================================================
+
+float RD_LifetimeOpacity(float age, float fadeInEnd, float fadeOutStart)
+{
+    float fadeIn  = smoothstep(0.0, fadeInEnd,    age);
+    float fadeOut = smoothstep(1.0, fadeOutStart, age);
+    return fadeIn * fadeOut;
+}
+
+float2 RD_LifetimeSquish(float2 p, float age)
+{
+    float t = smoothstep(0.85, 1.0, age);
+    return p * float2(1.0 + t * 0.25, 1.0 - t * 0.15);
+}
+
+
+// =============================================================================
+//  MODULE 5 — 水滴内部渲染
+// =============================================================================
+
+float3 RD_ShadeInterior(
+    float2 p,
+    float  size,
+    float2 globalUV,
+    float  time,
+    float  seed,
+    float3 dropColor,
+    float3 causticColor,
+    float3 rimColor)
+{
+    float3 N = RD_TeardropNormal(p, size);
+    const float3 V = float3(0.0, 0.0, 1.0);
+
+    float2 refractUV = globalUV + N.xy * 0.07;
+    float  caustic   = RD_CausticPattern(refractUV, time, seed);
+    float3 interior  = lerp(dropColor * 0.6, causticColor, caustic * 0.7);
+
+    float  fresnel   = pow(1.0 - saturate(dot(N, V)), 2.5);
+    interior         = lerp(interior, rimColor * 0.9, fresnel * 0.65);
+
+    // 主高光（光源方向：normalize(0.35, 0.55, 1.0)）
+    const float3 L = float3(0.293, 0.461, 0.838);
+    float3 H       = normalize(L + V);
+    float  NdotH   = saturate(dot(N, H));
+    interior       += rimColor * pow(NdotH, 48.0) * 0.85;
+    interior       += float3(1.0, 1.0, 1.0) * pow(NdotH, 180.0) * 0.5;
+
+    return interior;
+}
+
+
+// =============================================================================
+//  MODULE 6 — 边缘辉光
+// =============================================================================
+
+float3 RD_ShadeEdge(float dist, float size, float3 rimColor)
+{
+    float outerGlow = smoothstep(size * 0.25, 0.0, abs(dist));
+    float innerGlow = smoothstep(size * 0.08, 0.0, abs(dist + size * 0.02));
+    return rimColor * (outerGlow * 0.30 + innerGlow * 0.50);
+}
+
+
+// =============================================================================
+//  MODULE 7 — Opacity 蒙版
+// =============================================================================
+
+float RD_ComputeOpacity(float dist, float size, float edgeSoftness)
+{
+    float bodyMask = 1.0 - smoothstep(-size * 0.02, size * 0.04 * edgeSoftness, dist);
+    float glowMask = smoothstep(size * 0.30 * edgeSoftness, 0.0, dist) * 0.6;
+    return saturate(bodyMask + glowMask);
+}
+
+
+// =============================================================================
+//  ENTRY POINT
+// =============================================================================
+
+float4 NiagaraRaindrop(
+    float2 UV,
+    float  Time,
+    float4 DynParam,
+    float4 ParticleColor,
+    float3 DropColor,
+    float3 CausticColor,
+    float3 RimColor,
+    float  DropScale,
+    float  EdgeSoftness,
+    float  FadeInEnd,
+    float  FadeOutStart)
+{
+    float normalizedAge = saturate(DynParam.x);
+    float seed          = DynParam.y;
+
+    float2 p    = UV - float2(0.5, 0.5);
+    p           = RD_LifetimeSquish(p, normalizedAge);
+    float dist  = RD_SdTeardrop(p, DropScale);
+
+    float insideMask = 1.0 - smoothstep(-DropScale * 0.02, DropScale * 0.04, dist);
+
+    float3 color = float3(0.0, 0.0, 0.0);
+    if (insideMask > 0.001)
+    {
+        color = RD_ShadeInterior(p, DropScale, UV, Time, seed,
+                                 DropColor, CausticColor, RimColor);
+    }
+
+    color  += RD_ShadeEdge(dist, DropScale, RimColor);
+
+    float opacity = RD_ComputeOpacity(dist, DropScale, EdgeSoftness);
+    opacity *= RD_LifetimeOpacity(normalizedAge, FadeInEnd, FadeOutStart);
+
+    color   *= ParticleColor.rgb;
+    opacity *= ParticleColor.a;
+
+    color = color / (color + 0.85);
+
+    return float4(saturate(color), saturate(opacity));
+}

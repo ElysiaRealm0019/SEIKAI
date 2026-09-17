@@ -1,0 +1,24 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "MMD Anchor Recorder",
+	"Description": "编辑器工具：抓取当前视口相机 + 场景平行光计算 LdotV / L_up，读取选中物体材质实例的 ShadowSmooth / ShadowLocation / ExposureScale，自动追加一行到 anchors.csv（多参考点锚点表）。",
+	"Category": "MMD",
+	"CreatedBy": "TA",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "MMDAnchorRecorder",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}
