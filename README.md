@@ -22,12 +22,6 @@
 - [故障排查速查表](#故障排查速查表) — 症状 → 先查什么
 - [建筑 Lit 版](#建筑-lit-版接收角色投影--引擎阴影) — 让建筑能接收动态阴影
 
-**开发历程**（2026-05-05 → 至今）
-- [时间线](#开发历程) — 按 git 提交逐节点记录：当时要解决什么、为什么这么选、代价是什么
-- [架构上限](#架构上限unlit-换来控制权代价是够不着引擎光照) — Unlit 换控制权的代价
-- [踩坑记录](#踩坑记录) — 16 条，含 6 条静默失败
-- [调试方法论](#调试方法论) — 静默失败是怎么定位出来的
-
 ---
 
 ## 文件说明
@@ -52,170 +46,7 @@
 
 | 文件 | 用途 |
 |------|------|
-| `MMDToonShader_SM5_Debug_NormalBugs.hlsl` | 独立复现踩坑 #2（Z 反向）和 #3（NaN）两个已修复的历史 bug，用于截图/录屏留证。`BugMode` 切换「正确实现 / NaN / Z反向」三种路径，`ViewMode` 切换「正常光照 / 把法线本身画成颜色」两种显示方式，不需要改材质图连线即可来回对比，详见[调试方法论](#调试方法论) |
-
----
-
-## 开发历程
-
-> 时间线以 git 提交为骨架，每个节点记录**当时要解决什么问题、为什么选这个方案、代价是什么**——只看代码得不出来的部分。
-> 提交信息本身写得很随意（`11`、`CHanges2`、`Alpha`），所以下面按实际改动内容重述。
-
-**项目周期**：2026-05-05 → 至今，约 3.5 个月，6 次提交 + 一批未提交的工作。
-
-```
-2026-05-05  ●─ 初始实现（同日两次提交）
-2026-05-07  ●─ 三层色带参数化
-                 ⋮  ← 约两个月空档（论文/资料调研期）
-2026-07-06  ●─ 工具链引入
-2026-07-23  ●─ 大重构：AI 自动校准 + 建筑变体 + 仓库瘦身
-2026-07-24  ●─ 建筑版微调
-                 ⋮  ← 约三周（当前阶段，尚未提交）
-2026-08-13  ◌─ 描边重写 / 建筑 Lit 版 / MPC 化 / 文档补全
-```
-
----
-
-### 2026-05-05 · `3b8218c` 初始实现
-
-`MMDToonShader_SM5_SingleFunc.hlsl`（147 行）+ `UE5_CustomNode_Configuration.hlsl`（287 行）+ README（189 行）。
-
-奠定了整套方案的基本形态：**单个 Custom 节点 + Unlit + 输出到 Emissive**。选这条路是为了完全的美术控制权——不受 UE 光照管线约束，所有明暗关系自己算。代价直到三个月后才完全显现（见[架构上限](#架构上限unlit-换来控制权代价是够不着引擎光照)）。
-
-此时阴影只有**一条明暗交界线**（`ShadowColor` 与 Toon 贴图之间一次 `lerp`）。
-
-### 2026-05-05 · `4381d86` 三小时后：透明变体
-
-同日加入 `_Alpha.hlsl`（152 行）和 `_Hair.hlsl`（147 行）。头发边缘需要半透明，而 Opaque 主文件做不到，于是**按 Blend Mode 拆文件而不是加开关**——这个「需求分叉就拆文件」的取向在后面的建筑变体、描边变体上一直延续。
-
-### 2026-05-07 · `54050b8` 单层阴影 → 三层参数化色带
-
-主文件 +31 行，配置文件 +89 行。**唯一一次写了规范提交信息的提交。**
-
-单层交界太硬、没有中间过渡，侧光下脸部会出现大块死黑。改成三层时，**关键决策不是「加两层」而是怎么参数化**。没有用直觉的「三个阈值」，而是拆成：
-
-- `T1 = ShadowThreshold`（深阴影起点）、`T3 = ShadowEnd`（亮区起点）—— **与光照强相关**，随镜头/光源角度需要校准
-- `MidSplit`（中间两层的宽度分配比）—— **与光照无关**，归美术一次性决定
-
-这么拆是为了给后面的 AI 自动校准划出干净的输入输出边界：AI 只预测 T1/T3 两个与光照相关的量，美术风格参数不进模型。**这一步是为两个月后的 AI 模块提前铺的路。**
-
-代价是 T1/T3 成了两个**独立绝对坐标**，调 T1 推不动 T3（见踩坑 #6）。
-
-### 2026-05-07 → 2026-07-06 · 两个月空档
-
-无代码提交。这段时间在做论文和资料调研——从后来 `96b4e3c` 删除的文件可以看出当时积累的内容：`Research/Academic.md`（494 行）、`Research/Papers/` 下多篇论文（Adam 优化器、UE5 Cel-Shading 工程实践、3D 角色风格化设计等）、BFX 2026 会议资料。
-
-### 2026-07-06 · `fbd0a23` 工具链引入
-
-引入 `.claude/skills/`（find-skills、skill-creator）。不涉及 shader 本身，是给后续开发配的辅助工具链。
-
-### 2026-07-23 · `96b4e3c` 大重构
-
-单次提交里同时做了四件事，是整个项目改动最大的一次：
-
-**① AI 自动校准模块落地** — 新增 `AIControl/`（`ai_mlp.hlsl`、`collect_training_data.py`、`fit_mlp.py`、`training_data.csv` 1002 行）和 `_AI.hlsl`（388 行）。兑现了 5-07 那次参数化拆分留下的接口：由 `LdotV` / `L_up` 预测 T1/T3，代替手工逐镜头调明暗交界线位置。
-
-**② 建筑变体分化** — 新增 `_Architecture.hlsl`（292 行）。建筑/场景表面和角色的需求分叉明显，独立成文件：
-
-- 删掉 Matcap、头发高光（角色专属）
-- 阴影从**离散三层色带**改成**单一连续渐变**——动画背景本来就是软渐变，不是硬边卡通
-- 加回 ORM（建筑需要石材哑光和鎏金光滑共存于同一实例；角色是手绘贴图流程，用不上）
-- 加 Emissive 窗户/灯笼（不受光照/阴影/ORM 影响）
-
-**③ 主文件重构（+189 行）** — 这一批改动在提交历史里被压成了一次，实际包含多轮迭代：
-
-- **法线贴图 + 两道回退守卫**：连续踩了 #2（BC5 只存 RG，读蓝通道当 Z 会让高光跑到背面）和 #3（切线未连接 → NaN → 全表面满强度高光）。最终形成两道独立守卫，任一命中都退回几何法线 `N`。有了守卫，法线贴图才能做成**可选**的——皮肤、布料留空即可。另一个决定是**法线只影响 Specular 形状和 Matcap 采样位置，不影响 Toon 分层和 Rim**，否则大色块阴影会被细碎法线搅碎。
-- **Rim Light 三参数解耦**：旧版单一 `RimPower` 把「条带宽窄」和「边缘软硬」耦合在一个指数里，做不出「很窄但边界很软」。拆成 `RimWidth` / `RimGradient` / `RimIntensity`。同时替换光源侧遮罩：旧版 `dot(L,V)*0.5+0.5` 不含法线，整圈轮廓乘同一系数变成均匀光晕，且公式里有 `0.6` 下限**怎么调都关不掉**；改成 `saturate(NdotL)` 后只有朝光那半边亮。
-- **参数精简**：删除角色版整套 ORM；把 `HairHighlightPower/Threshold/Softness` 合并进 `SpecPower/SpecularThreshold/SpecularSoftness`（两者公式结构本来就一样，少 3 个引脚）。
-- **HSV 统一调色层**：`ShadowHueShift`/`ShadowSaturation`/`ShadowBrightness` 一次性驱动三层阴影色，代替给三个色板各打曲线。三者都是 RGB 空间的等价运算，不需要真转到 HSV（V=乘系数，H=绕灰轴 `(1,1,1)` 旋转，S=向自身亮度插值）。**这一组明确是为动画准备的。**
-
-**④ 仓库瘦身** — 删除 `Research/` 下全部 PDF（含一个 162234 行的文件）和 `_Legacy.hlsl`。研究资料移出代码仓库。
-
-### 2026-07-24 · `90a8f8a` 建筑版微调
-
-`_Architecture.hlsl` +20/-7。
-
-### 2026-07-24 → 至今 · 当前阶段（**尚未提交**）
-
-约三周的工作，两个新文件 + 三个文件的修改：
-
-**① 描边方案第三代** — 新增 `_Outline_Stable.hlsl`（437 行）。前两代都不够用：
-
-| 代 | 方案 | 为什么被替换 |
-|---|---|---|
-| 一 | `_Outline.hlsl`：CustomDepth 八方向阈值判边 | **二值判断**——轮廓移动半个像素，某个像素就整格翻转，产生爬行/闪烁。而且要在材质图里手工摆 10 个 SceneTexture 节点 |
-| 二 | `_OutlineHull.hlsl`：Inverted Hull | 观感上限最高（吃引擎原生 TAA/MSAA），但角色是 **GeometryCache**——有 `Render CustomDepth Pass` 却**没有 Overlay Material**，必须复制整个 Component 并同步播放时间。凹面/薄片几何还会互相穿插 |
-| 三 | `_Outline_Stable.hlsl` | **当前方案** |
-
-第三代的核心思路：不做「是不是边」的二值判断，而是用 Vogel 螺旋撒 16 个采样点统计**覆盖率**。覆盖率有个很好的几何性质——角色内部深处 = 1，**轮廓正上方恰好 ≈ 0.5**，外面 = 0，中间随「到轮廓的距离」单调连续变化。于是 `|Coverage − 0.5|` 就是一个亚像素精度的有向距离场：轮廓挪半格时改变的是描边**不透明度**而不是「有没有描边」，天然抗锯齿。
-
-实现过程中连续踩了 #9~#13 五个坑，其中 #9 / #10 / #13 都是**静默失败**（不报错、不提示），全靠调试可视化定位。
-
-**② 建筑 Lit 版** — 新增 `_Architecture_Lit.hlsl`（295 行）。触发点是一个 Unlit 绕不过去的需求：**角色应该在建筑上投下阴影，但 Unlit 材质接收不到**。把表面色处理留在 Custom 节点、受光交回 Default Lit 管线。详见[架构上限](#架构上限unlit-换来控制权代价是够不着引擎光照)和[建筑 Lit 版](#建筑-lit-版接收角色投影--引擎阴影)。
-
-**③ 显式开关** — 主文件 +83 行。修「头部莫名发白」（#5）时发现一类系统性问题：**引脚悬空时 UE 会喂默认占位贴图**（纯白），代码照常运行、不报错，但语义完全变了。于是把「这个材质没配某张贴图」变成**被声明的状态**：
-
-- `UseToonTexture` + `LitColor`：显式声明没有渐变贴图，亮部用纯色
-- `UseToonShading`：Toon 总开关，一键跳过全部风格化处理，用于二分排查「异常是不是 Toon 处理本身造成的」
-
-同期还修了 #7（硬 `if` 守卫让色带整层瞬间消失，改成 `smoothstep` 连续淡出）和 #8（`ShadowSharpness` 缺 `saturate` 防呆）。
-
-**④ MPC 化** — 材质实例参数无法被 Sequencer 直接驱动跨多个材质槽（角色有 20+ 个槽）。建 `MPC_CharAnim`（12 标量）和 `MPC_ArchAnim`（8 标量 + 2 向量），把材质图里对应的参数节点换成 `CollectionParameter`。选参数的标准就是[动画分档](#哪些参数适合做动画sequencer--timeline)里的 ✅ 档 + 🎯 档。
-
-**⑤ 文档补全** — README +359 行（本节、描边指南、MPC 工作流、故障排查速查表）。
-
-> ⚠️ **这批工作目前全部未提交**，包括两个从未进过版本控制的新文件（`_Architecture_Lit.hlsl`、`_Outline_Stable.hlsl`，共 732 行）。建议尽快提交——上一次提交距今已三周。
-
----
-
-### 架构上限：Unlit 换来控制权，代价是够不着引擎光照
-
-整套 Toon shader 用 **Unlit + 输出到 Emissive** 换取完全的美术控制权。代价是**引擎的光照系统全都够不着**：
-
-| 想要的 | 为什么 Unlit 做不到 |
-|---|---|
-| 接收角色/物体投下的动态阴影 | 阴影信息只存在于延迟渲染的光照 pass，算完直接合成进 SceneColor。Unlit 不参与那个 pass，也没有任何材质节点能读出 shadow mask |
-| Lumen GI（「从暗处走到亮处」自动变亮） | 同上，Lumen 结果在光照 pass 里 |
-| Deferred Decal | 贴花靠改写 GBuffer 生效，Unlit 表面不进 GBuffer，贴花打上去不显示 |
-
-注意**投射**没问题：不透明几何体无论什么 Shading Model 都会写进 shadow depth map，所以 Unlit 角色照样能在别的物体上投影。**问题只在接收端。**
-
-解决路径就是 `_Architecture_Lit.hlsl`：把表面色处理留在 Custom 节点、把受光交回 Default Lit 管线。角色版没做 Lit 化，因为角色恰恰需要严格的卡通色带，而 Lit 版的阴影亮度由场景光照决定、无法严格量化——真要两者兼得只能自定义 Shading Model，超出单个 Custom 节点的范围。
-
----
-
-### 踩坑记录
-
-按发生顺序。**加 ★ 的是静默失败**——不报错、不提示，最难定位。
-
-| # | 症状 | 根因 | 修法 |
-|---|------|------|------|
-| 1 | 阴影整体反相，该亮的暗、该暗的亮 | `LightDirection` 传成了光的照射方向 | 约定为**从表面指向光源**；`GetForwardVector()` 要乘 -1 |
-| 2 | 高光跑到背对摄像机的一面 | 直接读法线贴图蓝通道当 Z。UE 的 `Normalmap` 是 **BC5 压缩，只存 R/G**，蓝通道不可靠（常为 0）→ Z = -1 → 法线翻向内侧 | 只读 RG，`Z = sqrt(saturate(1 - x² - y²))` 重建 |
-| 3 | ★ 放入法线贴图后整体发亮、无比光滑 | `WorldTangent` 未连接 → `(0,0,0)` → `normalize` 得 NaN → `saturate(dot(NaN, H))` 在部分 GPU 返回 1 → 全表面满强度高光 | 切线长度守卫，退回几何法线 `N` |
-| 4 | 编译报 `redefinition of parameter 'RimWidth'` | Custom 节点 Inputs 面板里有两个同名引脚（编辑器状态问题，不是代码问题） | 在 Details 面板删掉重复引脚 |
-| 5 | ★ 头部某块区域莫名发白，像在发光 | 该材质根本没配 Toon 渐变贴图，引脚悬空吃了 UE 的默认纯白占位贴图 → 亮部完全不参与调色 → base color 里本来就偏亮的区域（额头）被原样曝出来 | 加 `UseToonTexture` + `LitColor`，把「没有贴图」变成显式声明 |
-| 6 | 调 `ShadowThreshold` 推不动 Shadow3 与亮部的交界 | `T3 = max(T1 + 0.05, ShadowEnd)`，只要 `T1 < ShadowEnd - 0.05`，`max()` 恒选 `ShadowEnd` → T3 是绝对坐标，与 T1 无关 | 语义写进文档；要移动亮部交界线调 `ShadowEnd` |
-| 7 | 色带整层瞬间消失（动画播放中） | 色带宽度守卫用了硬 `if`，而宽度是随 `ShadowThreshold` 连续变化的量，且 `ShadowThreshold` 挂在 Sequencer 曲线上。曲线扫过临界宽度那一帧整层消失，区域从阴影色跳到亮部色 | 改成 `smoothstep` 连续淡出 |
-| 8 | ★ 某材质阴影参数「失灵」 | `ShadowSharpness` 被填成 `-5.94`（文档标注范围 0~1）。`lerp(0.05, 0.002, -5.94)` 算出过渡半宽 0.335，`smoothstep` 下界跑到负数、最深阴影永远到不了满值，且中间两层宽度守卫永远不通过被静默跳过 | 代码内加 `saturate()` 防呆 |
-| 9 | ★ 描边材质一挂上，**整个画面全黑** | `[unroll]` 循环里调 `SceneTextureLookup` → DXIL 验证失败 `Instructions should not read uninitialized value` → **UE 静默回退到 Default Material**，材质编辑器里不报任何错，只有 Output Log 里能看到 | 预算 Vogel 常量、手工展开 16 次采样，不用 `for`。同理不要把 `MMD_CD()` 直接嵌进 `MMD_MASKED()`（宏展开成每点 3 次 lookup） |
-| 10 | 描边整体偏移，但**中心像素是对的** | 材质图里的 SceneTexture 节点会自动做 ViewportUV → SceneTextureUV 转换；Custom 节点里手动调 `SceneTextureLookup` 不会。中心值走图节点（转换过），环形采样走手动调用（没转换）。开 TSR 后更明显——后处理在输出分辨率、深度缓冲在渲染分辨率 | 手动调 `ViewportUVToSceneTextureUV(UV, 13)`，偏移用 `View.BufferSizeAndInvSize.zw` |
-| 11 | 描边变成一圈光晕而不是线 | `OutlineThickness` 被当成像素数填了 `20.87`，但它是**比例（0~1）**，被 `clamp` 到 1.0；配上 `OutlineSoftness=1` 公式退化成 `1-smoothstep(0,1,Dist)`，从轮廓一路渐变到采样盘边缘。**命名歧义**：`OutlineWidth`（像素）和 `OutlineThickness`（比例）都像「宽度」却单位不同 | 单位写进文档；想要粗线只调 `OutlineWidth` |
-| 12 | 描边穿过地形漏出来 | CustomDepth 是**独立 pass**，角色被地形挡住时照样写入，光看 CustomDepth 分不清「露出来的」和「藏在山后的」。旧版用采样盘内**最近**深度（`min`）做一次全局判定，极度宽松——盘内有任何一个更近的采样点整块就放行，`OutlineWidth` 越大漏得越狠 | 逐采样点比对各自位置的 SceneDepth |
-| 13 | ★ 修完 #12 后，角色身上冒出**黑色斑点** | 把逐点可见性的 `step()` 硬判断**直接乘进了覆盖率**。而 CustomDepth 和 SceneDepth 是两次独立光栅化（开了 `r.CustomDepthTemporalAAJitter=0` 后抖动状态还不同），在角色内部的深度断裂处（裙压腿、两腿之间）半像素错位会让纹素在近/远面翻转。零星误判把内部覆盖率从 1.0 拉到 0.75，`Dist` 跌进线带 → 黑斑 | 覆盖率只看 CustomDepth；可见性单独统计成比例再过 `smoothstep`。**平均 + 平滑把硬判断的噪声吃掉了** |
-| 14 | ★ 一块黑斑，调亮参数完全不动 | `ShadowColor = (0,0,0)` → `ResultColor *= 0`。**乘零对后续所有乘法免疫**（`ShadowBrightness`、`ExposureScale`、后期调亮全是在给 0 做乘法）。「调亮了也一样」恰恰是乘零的特征证据，不是反证 | `ShadowColor` 用极小非零值 |
-| 15 | ★ 某个特性配好了却完全不出现 | UE 里**新建的 `VectorParameter` 默认是纯黑 `(0,0,0,0)`，不是白色**。`SpecularColor`/`RimColor`/`MatcapColor`/`EmissiveColor` 一旦漏设就等于把该特性乘成 0。本项目至少踩了 4 次 | 建参数时**显式写默认值**，别依赖 UE 的默认 |
-| 16 | 按索引改材质表达式，改错了节点 | 材质保存后 UE 会**重排表达式顺序**（Custom 节点从 index 20 挪到 index 0） | 每次按索引操作前重新读一遍表达式列表 |
-
-### 调试方法论
-
-上面 6 个 ★ 静默失败没有一个是靠「盯代码」找出来的。实际有效的手段：
-
-1. **最小化复现**。#9 是这么定位的：把 Custom 节点换成单次 `SceneTextureLookup` → 编译通过 → 说明函数本身没问题，问题只在循环展开。一次替换就把嫌疑范围从整个 shader 缩到一行。
-2. **把中间量输出成颜色通道**。#13/#14 是这么定位的：`return float3(Silhouette, Interior, 1-Occlusion)`，红绿蓝各代表一项，一眼看出是哪一项在误触发。后续再用 `float3(CenterMask, Coverage, 0)` 验证 CustomDepth 完整性——角色内部应该是纯黄，任何橙红斑块都是覆盖率空洞。
-3. **非破坏性染色**。把 `OutlineColor` 临时改成纯红，不改代码、不用重编译，立刻看清描边实际覆盖范围。这一步直接排除了「黑斑是描边画的」这个错误假设。
-4. **用排除法确认归属**。终极验证是把 `OutlineOpacity` 设成 0——黑斑还在就说明与描边无关。**在改代码之前先确认问题归谁**，比什么都省时间。
-5. **静默失败必须查 Output Log**。`recompile_material` 返回成功只代表调用成功，**不代表着色器编译通过**。#9 的 `Failed to compile Material ... Default Material will be used in game` 只在日志里出现。
+| `MMDToonShader_SM5_Debug_NormalBugs.hlsl` | 独立复现「Z 反向」和「NaN」两个已修复的历史 bug，用于截图/录屏留证。`BugMode` 切换「正确实现 / NaN / Z反向」三种路径，`ViewMode` 切换「正常光照 / 把法线本身画成颜色」两种显示方式，不需要改材质图连线即可来回对比 |
 
 ---
 
@@ -352,7 +183,7 @@ Unlit 材质无法自动读取场景光源，必须手动传入。
 | `HairHighlightIntensity` | `CMOT Float1` | `1.0` | 头发高光整体强度（0 = 关闭） |
 | `HairHighlightColor` | `CMOT Float3` | `(1.0, 1.0, 1.0)` | 颜色叠加/染色，白色 = 不改变贴图原色 |
 
-> ⚠️ **`HairHighlightColor` 是总开关级的乘数**——设成纯黑等于关掉整个头发高光，**和 `UseHairHighlightTexture` 选哪个模式无关**。UE 新建 `VectorParameter` 默认就是纯黑（见踩坑 #15），这是「头发完全没有高光」最常见的原因。同理 `SpecularColor` 黑掉会让身体高光也一起消失。
+> ⚠️ **`HairHighlightColor` 是总开关级的乘数**——设成纯黑等于关掉整个头发高光，**和 `UseHairHighlightTexture` 选哪个模式无关**。UE 新建 `VectorParameter` 默认就是纯黑，这是「头发完全没有高光」最常见的原因。同理 `SpecularColor` 黑掉会让身体高光也一起消失。
 >
 > **没有高光贴图的头发材质应该显式设 `UseHairHighlightTexture = 0`**，而不是让贴图引脚悬空。悬空时会吃 UE 的默认纯白占位贴图，`HairTint` 恒为 `(1,1,1)`，高光形状退化成绕法线的 **Blinn-Phong 圆斑**——糊在头发上像一颗塑料球，完全没有发丝感。这和 `UseToonTexture` 是同一类设计：把「没配这张贴图」变成显式声明的状态。
 
@@ -625,7 +456,7 @@ r.CustomDepthTemporalAAJitter=0
 | `OutlineColor` | `(0.04, 0.035, 0.05)` | 颜色 | 描边颜色。**这是唯一该调的粗细以外的外观参数** |
 | `OutlineOpacity` | `1.0` | 0~1 | 整体不透明度。设 0 = 完全关闭，是排查「问题归不归描边」的最快手段 |
 | `OutlineWidth` | `2.5` | **像素** | 采样盘半径。**想要更粗的线只调这个。**实际线宽 ≈ `OutlineWidth × 0.9` |
-| `OutlineThickness` | `0.55` | **比例 0~1** | ⚠️ **不是像素！**线占采样盘半径的比例，代码内 `clamp(…, 0.02, 1.0)`。当成像素填会退化成光晕（见踩坑 #11） |
+| `OutlineThickness` | `0.55` | **比例 0~1** | ⚠️ **不是像素！**线占采样盘半径的比例，代码内 `clamp(…, 0.02, 1.0)`。当成像素填会退化成光晕 |
 | `OutlineSoftness` | `0.45` | 比例 0~1 | 边缘渐变。**不要设 0**（等于把连续覆盖率又二值化回去，抖动原样回来），**也不要设 1**（配合 Thickness=1 就是光晕退化）。想要锐利用 0.25~0.3 |
 | `OutlineBias` | `0.5` | 0~1 | 线相对轮廓的位置。0.5 = 骑在轮廓上（最接近 Inverted Hull 观感）；<0.5 往外推（不啃角色但放大剪影）；>0.5 往内收 |
 | `InteriorStrength` | `1.0` | 0~1 | 内部结构线强度（手臂压身体、衣褶）。0 = 只画外轮廓 |
@@ -664,7 +495,7 @@ Movie Render Queue → Anti-aliasing → **Temporal Sample Count** 设 8~16。MR
 
 > ⚠️ **代价**：MPC 是全局的（per-world），不是 per-instance。原本各材质槽可以给同一参数设不同值，改成 MPC 后**全部槽被统一驱动**，逐槽差异丢失。如果某些槽需要保留独立数值，得改成「MPC 全局值 × 实例乘数」的结构，而不是直接替换。
 >
-> ⚠️ 建 MPC 参数时**显式写默认值**。向量参数尤其要注意——UE 新建默认是纯黑（见踩坑 #15）。
+> ⚠️ 建 MPC 参数时**显式写默认值**。向量参数尤其要注意——UE 新建默认是纯黑。
 
 ---
 
@@ -688,7 +519,7 @@ Movie Render Queue → Anti-aliasing → **Temporal Sample Count** 设 8~16。MR
 | 描边有爬行/闪烁 | `r.CustomDepthTemporalAAJitter` 是否为 0；出片是否开了 MRQ Temporal Sample |
 | 建筑收不到角色投影 | Unlit 架构限制，换 `_Architecture_Lit.hlsl` |
 
-**通用手段**：先用 `OutlineOpacity=0` / `UseToonShading=0` 做排除法确认问题归属，再用「把中间量输出成颜色通道」定位到具体哪一项。详见上面的[调试方法论](#调试方法论)。
+**通用手段**：先用 `OutlineOpacity=0` / `UseToonShading=0` 做排除法确认问题归属，再用「把中间量输出成颜色通道」定位到具体哪一项。
 
 ---
 
